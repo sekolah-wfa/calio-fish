@@ -377,42 +377,52 @@ export async function updateOutlet(id: string, data: any) {
 }
 
 export async function addPiutang(outletId: string, amount: number, description: string = '', dateString?: string) {
-  const user = await verifySession();
-  const role = (user?.role || '').toUpperCase();
-  const isOwnerOrAdmin = role === 'OWNER' || role === 'ADMIN';
+  try {
+    const user = await verifySession();
+    const role = (user?.role || '').toUpperCase();
+    const isOwnerOrAdmin = role === 'OWNER' || role === 'ADMIN';
 
-  if (!isOwnerOrAdmin) {
-    throw new Error('Akses ditolak: Hanya OWNER atau ADMIN yang dapat menginput tagihan secara manual via web dashboard.');
+    if (!isOwnerOrAdmin) {
+      return { success: false, error: 'Akses ditolak: Hanya OWNER atau ADMIN yang dapat menginput tagihan secara manual via web dashboard.' };
+    }
+
+    const nominal = Number(amount);
+    if (isNaN(nominal) || nominal <= 0) {
+      return { success: false, error: 'Nominal piutang harus lebih besar dari 0.' };
+    }
+
+    const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
+    if (!outlet) return { success: false, error: 'Outlet tidak ditemukan' };
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.outletTransaction.create({
+        data: {
+          outlet_id: outletId,
+          type: TRANSACTION_TYPES.PIUTANG_MANUAL,
+          amount: new Prisma.Decimal(nominal),
+          piutang_delta: new Prisma.Decimal(nominal),
+          valuasi_delta: new Prisma.Decimal(0),
+          description: description || 'Penambahan Piutang Manual',
+          date: dateString ? new Date(dateString) : new Date()
+        }
+      });
+      return await consignmentRecalculate(tx, outletId);
+    }, { maxWait: 10000, timeout: 30000 });
+
+    revalidatePath('/outlet');
+    revalidatePath('/marketing');
+    revalidatePath('/overview');
+    return {
+      success: true,
+      tagihan: updated ? Number(updated.tagihan) : undefined,
+      sisa_tagihan: updated ? Number(updated.sisa_tagihan) : undefined,
+      payment: updated ? Number(updated.payment) : undefined,
+      piutang: updated ? Number(updated.piutang) : undefined,
+      valuasi_stok: updated ? Number(updated.valuasi_stok) : undefined,
+    };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Gagal menyimpan piutang manual.' };
   }
-
-  const outlet = await prisma.outlet.findUnique({ where: { id: outletId } });
-  if (!outlet) throw new Error('Outlet tidak ditemukan');
-
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.outletTransaction.create({
-      data: {
-        outlet_id: outletId,
-        type: TRANSACTION_TYPES.PIUTANG_MANUAL,
-        amount: new Prisma.Decimal(amount),
-        piutang_delta: new Prisma.Decimal(amount),
-        valuasi_delta: new Prisma.Decimal(0),
-        description: description || 'Penambahan Piutang Manual',
-        date: dateString ? new Date(dateString) : new Date()
-      }
-    });
-    return await consignmentRecalculate(tx, outletId);
-  });
-
-  revalidatePath('/outlet');
-  revalidatePath('/marketing');
-  revalidatePath('/overview');
-  return updated ? { 
-    tagihan: Number(updated.tagihan), 
-    sisa_tagihan: Number(updated.sisa_tagihan), 
-    payment: Number(updated.payment),
-    piutang: Number(updated.piutang),
-    valuasi_stok: Number(updated.valuasi_stok)
-  } : null;
 }
 
 export async function addPelunasan(outletId: string, amount: number, description: string = '', dateString?: string) {

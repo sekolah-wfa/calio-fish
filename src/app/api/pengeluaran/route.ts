@@ -19,14 +19,17 @@ export async function GET(req: NextRequest) {
     let dateFilter = {};
     if (fromParam && toParam) {
       dateFilter = {
-        gte: new Date(`${fromParam}T00:00:00.000`),
-        lte: new Date(`${toParam}T23:59:59.999`)
+        gte: new Date(`${fromParam}T00:00:00.000Z`),
+        lte: new Date(`${toParam}T23:59:59.999Z`)
       };
     } else {
       const now = new Date();
+      const firstStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const lastStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       dateFilter = {
-        gte: new Date(now.getFullYear(), now.getMonth(), 1),
-        lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        gte: new Date(`${firstStr}T00:00:00.000Z`),
+        lte: new Date(`${lastStr}T23:59:59.999Z`)
       };
     }
 

@@ -1,14 +1,35 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import useSWR from 'swr';
+import { DateRange } from 'react-day-picker';
+import { format } from 'date-fns';
 import { PdfExportButton } from '@/components/ui/PdfExportButton';
 import { PengeluaranClient } from './PengeluaranClient';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function PengeluaranPage() {
-  const { data, isLoading } = useSWR('/api/pengeluaran', fetcher);
+  const [appliedRange, setAppliedRange] = useState<DateRange>(() => {
+    const today = new Date();
+    return {
+      from: new Date(today.getFullYear(), today.getMonth(), 1),
+      to: new Date(today.getFullYear(), today.getMonth() + 1, 0),
+    };
+  });
+
+  const apiUrl = useMemo(() => {
+    if (appliedRange?.from) {
+      const fromStr = format(appliedRange.from, 'yyyy-MM-dd');
+      const toStr = format(appliedRange.to || appliedRange.from, 'yyyy-MM-dd');
+      return `/api/pengeluaran?from=${fromStr}&to=${toStr}`;
+    }
+    return '/api/pengeluaran';
+  }, [appliedRange]);
+
+  const { data, isLoading, isValidating, mutate } = useSWR(apiUrl, fetcher, {
+    keepPreviousData: true,
+  });
 
   if (isLoading && !data) {
     return (
@@ -28,6 +49,14 @@ export default function PengeluaranPage() {
         <PengeluaranClient 
           initialData={data?.data || []} 
           employees={data?.employees || []}
+          appliedRange={appliedRange}
+          isFiltering={isValidating}
+          onApplyRange={(range) => {
+            if (range?.from) {
+              setAppliedRange({ from: range.from, to: range.to || range.from });
+            }
+          }}
+          onMutate={() => void mutate()}
           exportButton={<PdfExportButton targetId="pengeluaran-report" filename="laporan-pengeluaran" />}
         />
       </div>

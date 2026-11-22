@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -22,21 +22,40 @@ interface Expense {
 export function PengeluaranClient({
   initialData,
   employees = [],
+  appliedRange,
+  isFiltering = false,
+  onApplyRange,
+  onMutate,
   exportButton,
 }: {
   initialData: Expense[];
   employees?: Array<{ id: string; nama: string; posisi?: string }>;
+  appliedRange?: DateRange;
+  isFiltering?: boolean;
+  onApplyRange?: (range: DateRange | undefined) => void;
+  onMutate?: () => void;
   exportButton?: React.ReactNode;
 }) {
   const [data, setData] = useState<Expense[]>(initialData);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    if (appliedRange?.from) return appliedRange;
     const today = new Date();
     return {
       from: new Date(today.getFullYear(), today.getMonth(), 1),
       to: new Date(today.getFullYear(), today.getMonth() + 1, 0)
-    }
+    };
   });
-  const [appliedDateRange, setAppliedDateRange] = useState<DateRange | undefined>(dateRange);
+  const [appliedDateRange, setAppliedDateRange] = useState<DateRange | undefined>(appliedRange || dateRange);
+
+  useEffect(() => {
+    setData(initialData);
+  }, [initialData]);
+
+  useEffect(() => {
+    if (appliedRange?.from) {
+      setAppliedDateRange(appliedRange);
+    }
+  }, [appliedRange]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Expense | null>(null);
@@ -53,17 +72,11 @@ export function PengeluaranClient({
   const filteredData = useMemo(() => {
     let result = [...data];
     if (appliedDateRange?.from) {
+      const fromStr = format(appliedDateRange.from, 'yyyy-MM-dd');
+      const toStr = format(appliedDateRange.to || appliedDateRange.from, 'yyyy-MM-dd');
       result = result.filter((p) => {
-        const itemDate = new Date(p.date);
-        itemDate.setHours(0, 0, 0, 0);
-        
-        const from = new Date(appliedDateRange.from!);
-        from.setHours(0, 0, 0, 0);
-        
-        const to = appliedDateRange.to ? new Date(appliedDateRange.to) : new Date(from);
-        to.setHours(23, 59, 59, 999);
-
-        return itemDate >= from && itemDate <= to;
+        const itemStr = new Date(p.date).toISOString().slice(0, 10);
+        return itemStr >= fromStr && itemStr <= toStr;
       });
     }
     return result;
@@ -83,7 +96,7 @@ export function PengeluaranClient({
 
   const handleApplyFilter = () => {
     setAppliedDateRange(dateRange);
-    // Ideally we should refetch from API here if it was server paginated, but since we fetched current month by default it works for simple cases.
+    onApplyRange?.(dateRange);
   };
 
   const handleOpenModal = (item?: Expense) => {
@@ -138,6 +151,7 @@ export function PengeluaranClient({
       } else {
         setData([savedData, ...data]);
       }
+      onMutate?.();
       setIsModalOpen(false);
     } catch (error) {
       console.error(error);
@@ -151,6 +165,7 @@ export function PengeluaranClient({
       const res = await fetch(`/api/pengeluaran?id=${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Gagal menghapus pengeluaran');
       setData(data.filter(item => item.id !== id));
+      onMutate?.();
     } catch (error) {
       console.error(error);
       alert('Terjadi kesalahan saat menghapus data');
@@ -192,8 +207,13 @@ export function PengeluaranClient({
 
         <div className="flex flex-wrap items-center gap-2">
           <DateRangePicker date={dateRange} setDate={setDateRange} />
-          <button onClick={handleApplyFilter} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm">
-            Filter
+          <button
+            type="button"
+            disabled={isFiltering}
+            onClick={handleApplyFilter}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm cursor-pointer disabled:opacity-60"
+          >
+            {isFiltering ? 'Memuat...' : 'Tampilkan'}
           </button>
           
           <button onClick={() => handleOpenModal()} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg shadow-sm flex items-center gap-1.5">

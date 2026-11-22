@@ -217,7 +217,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   // Batch selection & inline edit per product card
   const [selectedProductIds, setSelectedProductIds] = useState<Record<string, boolean>>({});
-  const [batchDrafts, setBatchDrafts] = useState<Record<string, { targetQty: string; hargaBeli: string }>>({});
+  const [batchDrafts, setBatchDrafts] = useState<Record<string, { qtyDelta: string; hargaBeli: string }>>({});
   const [bulkPriceFill, setBulkPriceFill] = useState<string>('');
   const [batchNote, setBatchNote] = useState<string>('');
   const [isSavingBatch, setIsSavingBatch] = useState(false);
@@ -563,22 +563,29 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
     setIsTxSubmitting(true);
     try {
       if (txType === 'PIUTANG') {
-        await addPiutang(selectedOutlet.id, Number(txAmount), txDesc, txDate);
+        const res = await addPiutang(selectedOutlet.id, Number(txAmount), txDesc, txDate);
+        if (res && res.success === false) {
+          throw new Error(res.error || 'Gagal menyimpan piutang manual');
+        }
         
-        const newTagihan = Number(selectedOutlet.tagihan) + Number(txAmount);
-        const newSisa = newTagihan - Number(selectedOutlet.payment);
+        const nextPiutang = res?.piutang !== undefined ? res.piutang : (Number(selectedOutlet.piutang || 0) + Number(txAmount));
+        const nextTagihan = res?.tagihan !== undefined ? res.tagihan : (Number(selectedOutlet.tagihan || 0) + Number(txAmount));
+        const nextSisa = res?.sisa_tagihan !== undefined ? res.sisa_tagihan : nextPiutang;
         
         setSelectedOutlet({
           ...selectedOutlet,
-          tagihan: newTagihan,
-          sisa_tagihan: newSisa,
+          piutang: nextPiutang,
+          tagihan: nextTagihan,
+          sisa_tagihan: nextSisa,
           transactions: [
             {
               id: 'temp-' + Date.now(),
               date: new Date(txDate).toISOString(),
-              type: 'PIUTANG',
+              type: 'PIUTANG_MANUAL',
               amount: Number(txAmount),
-              description: txDesc
+              piutang_delta: Number(txAmount),
+              valuasi_delta: 0,
+              description: txDesc || 'Penambahan Piutang Manual'
             },
             ...(selectedOutlet.transactions || [])
           ]
@@ -608,6 +615,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
       }
       
       await mutate('/api/data/outlets');
+      void mutate('/api/data/marketing');
+      void mutate('/api/data/overview');
       setIsTxModalOpen(false);
     } catch (err: any) {
       alert(err.message || 'Gagal menyimpan transaksi');
@@ -1068,7 +1077,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
         setBatchDrafts((d) => ({
           ...d,
           [pid]: d[pid] || {
-            targetQty: String(Number(card.quantity || 0)),
+            qtyDelta: '',
             hargaBeli: String(getStockPrice(card)),
           },
         }));
@@ -1084,12 +1093,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
       return;
     }
     const nextSelected: Record<string, boolean> = {};
-    const nextDrafts: Record<string, { targetQty: string; hargaBeli: string }> = { ...batchDrafts };
+    const nextDrafts: Record<string, { qtyDelta: string; hargaBeli: string }> = { ...batchDrafts };
     for (const card of cards) {
       nextSelected[card.product_id] = true;
       if (!nextDrafts[card.product_id]) {
         nextDrafts[card.product_id] = {
-          targetQty: String(Number(card.quantity || 0)),
+          qtyDelta: '',
           hargaBeli: String(getStockPrice(card)),
         };
       }
@@ -1109,7 +1118,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
       for (const c of cards) {
         if (selectedProductIds[c.product_id]) {
           const cur = next[c.product_id] || {
-            targetQty: String(Number(c.quantity || 0)),
+            qtyDelta: '',
             hargaBeli: String(getStockPrice(c)),
           };
           next[c.product_id] = { ...cur, hargaBeli: String(val) };
@@ -1131,11 +1140,16 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
       if (!draft) continue;
       const curQty = Number(card.quantity || 0);
       const curPrice = getStockPrice(card);
-      const nextQty = draft.targetQty === '' ? curQty : Number(draft.targetQty);
+      const delta = draft.qtyDelta === '' ? 0 : Number(draft.qtyDelta);
       const nextPrice = draft.hargaBeli === '' ? curPrice : Number(draft.hargaBeli);
 
-      if (isNaN(nextQty) || nextQty < 0) {
-        alert(`Stok "${card.product?.name}" tidak boleh kurang dari 0.`);
+      if (isNaN(delta)) {
+        alert(`Jumlah stok masuk/keluar "${card.product?.name}" tidak valid.`);
+        return;
+      }
+      const nextQty = curQty + delta;
+      if (nextQty < 0) {
+        alert(`Pengurangan "${card.product?.name}" (${delta} pcs) melebihi riwayat varian tercatat (${curQty} pcs).`);
         return;
       }
       if (isNaN(nextPrice) || nextPrice < 0) {
@@ -1146,7 +1160,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
       const itemPatch: { productId: string; targetQty?: number; hargaBeli?: number } = {
         productId: card.product_id,
       };
-      if (nextQty !== curQty) {
+      if (delta !== 0) {
         itemPatch.targetQty = nextQty;
         hasStockDelta = true;
       }
@@ -1851,7 +1865,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                       </div>
                     </div>
 
-                    {/* SECTION 2: Rincian Stok Fisik per Varian Rasa */}
+                    {/* SECTION 2: Input Stok Masuk & Harga per Varian Rasa */}
                     {(() => {
                       const existingMap = new Map<string, any>(
                         (selectedOutlet.stocks || []).map((s: any) => [s.product_id, s])
@@ -1875,7 +1889,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                         outletProductCards.length > 0 && checkedCards.length === outletProductCards.length;
                       const anyBatchStockChanged = checkedCards.some((c) => {
                         const d = batchDrafts[c.product_id];
-                        return d && d.targetQty !== '' && Number(d.targetQty) !== Number(c.quantity || 0);
+                        return d && d.qtyDelta !== '' && Number(d.qtyDelta) !== 0;
                       });
 
                       return (
@@ -1884,10 +1898,10 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                             <div>
                               <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                                 <Package size={15} className="text-slate-500" />
-                                <span>Rincian Stok Fisik per Varian Rasa (Histori Pengiriman & Freezer Toko)</span>
+                                <span>Input Stok Masuk &amp; Harga per Varian Rasa</span>
                               </div>
                               <p className="text-xs text-slate-500 mt-0.5">
-                                Centang kotak pada beberapa produk untuk langsung ubah stok &amp; harga sekaligus. Produk baru otomatis tampil di sini.
+                                Patokan stok outlet mengikuti <b>Stok per Jenis Produk</b> di atas. Input stok masuk tetap per varian agar tercatat otomatis ke <b>Log Pengiriman</b>.
                               </p>
                             </div>
                             {isOwnerOrAdmin && outletProductCards.length > 0 && (
@@ -1997,16 +2011,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                 const cardKey = stock.product_id;
                                 const unitPrice = getStockPrice(stock);
                                 const currentQty = Number(stock.quantity || 0);
-                                const subtotal = currentQty * unitPrice;
-                                const isLowStock = currentQty > 0 && currentQty <= 10;
-                                const isOutOfStock = currentQty === 0;
                                 const isChecked = !!selectedProductIds[cardKey];
                                 const draft = batchDrafts[cardKey] || {
-                                  targetQty: String(currentQty),
+                                  qtyDelta: '',
                                   hargaBeli: String(unitPrice),
                                 };
-                                const draftQtyNum = draft.targetQty === '' ? currentQty : Number(draft.targetQty);
-                                const draftDiff = draftQtyNum - currentQty;
+                                const draftDeltaNum = draft.qtyDelta === '' ? 0 : Number(draft.qtyDelta);
 
                                 return (
                                   <div
@@ -2018,7 +2028,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                     }`}
                                   >
                                     <div>
-                                      <div className="flex justify-between items-start gap-2 mb-2">
+                                      <div className="flex justify-between items-start gap-2 mb-3">
                                         <div className="flex items-start gap-2 min-w-0">
                                           {isOwnerOrAdmin && (
                                             <input
@@ -2039,37 +2049,16 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                             </div>
                                           </div>
                                         </div>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                                          isOutOfStock 
-                                            ? 'bg-rose-50 text-rose-600 border border-rose-200' 
-                                            : isLowStock 
-                                              ? 'bg-amber-50 text-amber-600 border border-amber-200' 
-                                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                        }`}>
-                                          {isOutOfStock ? 'Habis' : isLowStock ? 'Menipis' : 'Aman'}
-                                        </span>
-                                      </div>
-
-                                      {/* Stock Quantity & Subtotal Value */}
-                                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 mb-3">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-xs text-slate-500 font-medium">Stok Fisik:</span>
-                                          <span className="text-sm font-black text-slate-800">{currentQty} pcs</span>
-                                        </div>
-                                        <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/60 text-[11px]">
-                                          <span className="text-slate-400">Valuasi Aset:</span>
-                                          <span className="font-bold text-blue-700">Rp {subtotal.toLocaleString('id-ID')}</span>
-                                        </div>
                                       </div>
 
                                       {isOwnerOrAdmin && isChecked ? (
                                         <div className="space-y-2.5 bg-blue-50/70 p-2.5 rounded-xl border border-blue-200">
                                           <div>
                                             <div className="flex items-center justify-between text-[11px] mb-1">
-                                              <span className="font-bold text-blue-900">Stok Baru (pcs)</span>
-                                              {draftDiff !== 0 && !isNaN(draftDiff) && (
-                                                <span className={`font-extrabold ${draftDiff > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                                                  {draftDiff > 0 ? `+${draftDiff} pcs` : `${draftDiff} pcs`}
+                                              <span className="font-bold text-blue-900">Stok Masuk / Keluar (pcs)</span>
+                                              {draftDeltaNum !== 0 && !isNaN(draftDeltaNum) && (
+                                                <span className={`font-extrabold ${draftDeltaNum > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                                  {draftDeltaNum > 0 ? `+${draftDeltaNum} pcs` : `${draftDeltaNum} pcs`}
                                                 </span>
                                               )}
                                             </div>
@@ -2081,7 +2070,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                                     ...p,
                                                     [cardKey]: {
                                                       ...draft,
-                                                      targetQty: String(Math.max(0, draftQtyNum - 1)),
+                                                      qtyDelta: String(draftDeltaNum - 1),
                                                     },
                                                   }))
                                                 }
@@ -2091,12 +2080,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                               </button>
                                               <input
                                                 type="number"
-                                                min="0"
-                                                value={draft.targetQty}
+                                                placeholder="0 (+masuk)"
+                                                value={draft.qtyDelta}
                                                 onChange={(e) =>
                                                   setBatchDrafts((p) => ({
                                                     ...p,
-                                                    [cardKey]: { ...draft, targetQty: e.target.value },
+                                                    [cardKey]: { ...draft, qtyDelta: e.target.value },
                                                   }))
                                                 }
                                                 className="w-full border border-blue-300 rounded px-2 py-1 text-xs bg-white font-black text-center text-slate-900"
@@ -2108,7 +2097,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                                     ...p,
                                                     [cardKey]: {
                                                       ...draft,
-                                                      targetQty: String(draftQtyNum + 1),
+                                                      qtyDelta: String(draftDeltaNum + 1),
                                                     },
                                                   }))
                                                 }
@@ -2144,8 +2133,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                             editingStockId === cardKey ? (
                                               <div className="space-y-2.5 bg-blue-50/60 p-3 rounded-xl border border-blue-200 mb-3">
                                                 <div className="flex items-center justify-between">
-                                                  <div className="text-[11px] font-bold text-blue-900">Penyesuaian Stok Fisik</div>
-                                                  <div className="text-[10px] text-slate-500">Stok Saat Ini: <b className="text-slate-800">{currentQty} pcs</b></div>
+                                                  <div className="text-[11px] font-bold text-blue-900">Input Stok Masuk / Keluar</div>
+                                                  <span className="text-[10px] text-blue-600 font-semibold">Tercatat ke Log Pengiriman</span>
                                                 </div>
                                                 
                                                 <div className="space-y-1.5">
@@ -2192,11 +2181,11 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                                   {stockDelta !== '' && Number(stockDelta) !== 0 && (
                                                     <div className="text-[11px] px-2 py-1 rounded bg-white border border-blue-100 flex items-center justify-between">
                                                       <span className="text-slate-500 font-medium">
-                                                        Hasil Fisik: {currentQty} {Number(stockDelta) > 0 ? `+ ${stockDelta}` : `- ${Math.abs(Number(stockDelta))}`} =
+                                                        {Number(stockDelta) > 0 ? 'Stok masuk ke outlet:' : 'Pengembalian ke gudang:'}
                                                       </span>
-                                                      <span className={`font-black ${currentQty + Number(stockDelta) < 0 ? 'text-rose-600' : 'text-blue-700'}`}>
-                                                        {currentQty + Number(stockDelta)} pcs
-                                                        {currentQty + Number(stockDelta) < 0 && ' (Tidak valid, stok minus!)'}
+                                                      <span className={`font-black ${currentQty + Number(stockDelta) < 0 ? 'text-rose-600' : Number(stockDelta) > 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                                        {Number(stockDelta) > 0 ? `+${stockDelta}` : stockDelta} pcs
+                                                        {currentQty + Number(stockDelta) < 0 && ' (Melebihi stok varian tercatat!)'}
                                                       </span>
                                                     </div>
                                                   )}
@@ -2236,7 +2225,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                                         <span>Menyimpan...</span>
                                                       </>
                                                     ) : (
-                                                      <span>Simpan Perubahan</span>
+                                                      <span>Simpan Stok</span>
                                                     )}
                                                   </button>
                                                   <button 
@@ -2257,10 +2246,10 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                                     setStockNote(''); 
                                                     setStockWarehouseId(warehouses[0]?.id || ''); 
                                                   }} 
-                                                  className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer"
+                                                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
                                                 >
                                                   <Pencil size={11} />
-                                                  <span>Sesuaikan Stok Fisik</span>
+                                                  <span>+ Input Stok Masuk</span>
                                                 </button>
                                               </div>
                                             )
@@ -2824,7 +2813,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
       {/* Transaction Modal */}
       {isTxModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[90] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
               <span className={`w-3 h-3 rounded-full ${txType === 'PIUTANG' ? 'bg-red-500' : 'bg-green-500'}`}></span>
@@ -2871,7 +2860,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
       {/* Create/Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[90] p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">{isEditing ? 'Edit Outlet' : 'Tambah Outlet'}</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
