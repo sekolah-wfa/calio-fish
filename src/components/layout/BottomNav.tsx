@@ -202,7 +202,7 @@ export function BottomNav({ user }: BottomNavProps) {
     { name: "Warehouse", href: "/warehouse", icon: WarehouseIcon, visible: (isOwnerOrAdmin || isProduksi || isMarketing || isDistributor) && !primaryItems.some(p => p.href === "/warehouse") },
     { name: "Karyawan", href: "/karyawan", icon: Users, visible: isOwnerOrAdmin || isMarketing || isProduksi },
     { name: "Database Outlet", href: "/outlet", icon: MapPin, visible: (isOwnerOrAdmin || isMitra || isMarketing || isDistributor) && !primaryItems.some(p => p.href === "/outlet") },
-    { name: "Log Pengiriman", href: "/pengiriman", icon: Package, visible: (isOwnerOrAdmin || isMitra || isDistributor) && !primaryItems.some(p => p.href === "/pengiriman") },
+    { name: "Log Pengiriman", href: "/pengiriman", icon: Package, visible: (isOwnerOrAdmin || isMarketing || isMitra || isDistributor) && !primaryItems.some(p => p.href === "/pengiriman") },
     { name: "Affiliator", href: "/affiliator", icon: Network, visible: isOwnerOrAdmin },
     { name: "Chat Calio", href: "/chats", icon: MessageCircle, visible: !primaryItems.some(p => p.href === "/chats") },
     { name: "Pengaturan", href: "/settings", icon: Settings, visible: isOwnerOrAdmin },

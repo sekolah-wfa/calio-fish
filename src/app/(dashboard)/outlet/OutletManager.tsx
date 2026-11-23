@@ -272,7 +272,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   const isOwnerOrAdmin = userRole === 'OWNER' || userRole === 'ADMIN';
   const isMarketing = userRole === 'MARKETING' || userRole.includes('MARKETING');
   const isDistributor = userRole === 'DISTRIBUTOR';
-  const canAddOutlet = isOwnerOrAdmin || isDistributor;
+  const canManageOutlet = isOwnerOrAdmin || isMarketing;
+  const canAddOutlet = isOwnerOrAdmin || isMarketing || isDistributor;
 
   // Keep selectedOutlet in sync with latest outlets data from SWR
   useEffect(() => {
@@ -415,12 +416,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   const openModal = (outlet?: any) => {
     if (!canAddOutlet) {
-      alert('Akses ditolak: Hanya Owner, Admin, atau Distributor yang dapat menambah atau mengedit outlet.');
+      alert('Akses ditolak: Anda tidak memiliki izin untuk menambah atau mengedit outlet.');
       return;
     }
     if (outlet) {
-      if (!isOwnerOrAdmin && (!isDistributor || outlet.distributor_id !== currentUser?.id)) {
-        alert('Akses ditolak: Anda hanya dapat mengedit outlet jaringan kemitraan Anda sendiri.');
+      if (!isOwnerOrAdmin && !(isMarketing && outlet.pengelola_id === currentUser?.id) && !(isDistributor && outlet.distributor_id === currentUser?.id)) {
+        alert('Akses ditolak: Anda hanya dapat mengedit outlet yang Anda kelola.');
         return;
       }
       setFormData(outlet);
@@ -433,7 +434,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
         payment: 0, 
         sisa_tagihan: 0, 
         wilayah: isDistributor ? (currentUser?.wilayah || '') : '', 
-        pengelola_id: '',
+        pengelola_id: isMarketing ? (currentUser?.id || '') : '',
         distributor_id: isDistributor ? currentUser?.id : ''
       });
       setInitialStocks({});
@@ -513,8 +514,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   const handleDelete = async (id: string) => {
     if (isDeleting) return false;
     const target = outlets.find((o: any) => o.id === id);
-    if (!isOwnerOrAdmin && (!isDistributor || target?.distributor_id !== currentUser?.id)) {
-      alert('Akses ditolak: Anda hanya dapat menghapus outlet jaringan kemitraan Anda sendiri.');
+    if (!isOwnerOrAdmin && !(isMarketing && target?.pengelola_id === currentUser?.id) && !(isDistributor && target?.distributor_id === currentUser?.id)) {
+      alert('Akses ditolak: Anda hanya dapat menghapus outlet yang Anda kelola.');
       return false;
     }
     if (!confirm('Yakin ingin menghapus outlet ini? Riwayat transaksi dan stok outlet ini akan terhapus.')) {
@@ -541,8 +542,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   };
 
   const openTxModal = (type: 'PIUTANG' | 'PELUNASAN') => {
-    if (!isOwnerOrAdmin) {
-      alert('Akses ditolak: Hanya Owner atau Admin yang dapat menginput transaksi via dashboard.');
+    if (!canManageOutlet) {
+      alert('Akses ditolak: Anda tidak memiliki izin untuk menginput transaksi via dashboard.');
       return;
     }
     setTxType(type);
@@ -555,8 +556,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   const handleTxSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOutlet || !txAmount || isTxSubmitting) return;
-    if (!isOwnerOrAdmin) {
-      alert('Akses ditolak: Hanya Owner atau Admin yang dapat menginput transaksi keuangan manual.');
+    if (!canManageOutlet) {
+      alert('Akses ditolak: Anda tidak memiliki izin untuk menginput transaksi keuangan manual.');
       return;
     }
     
@@ -627,12 +628,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   const handleResetFinance = async () => {
     if (!selectedOutlet || isResettingFinance) return;
-    if (!isOwnerOrAdmin) {
-      alert('Akses ditolak: Hanya Owner atau Admin yang dapat mereset data keuangan.');
+    if (!canManageOutlet) {
+      alert('Akses ditolak: Anda tidak memiliki izin untuk mereset data keuangan.');
       return;
     }
 
-    const confirmText = `Apakah Anda yakin ingin mereset seluruh data tagihan, pembayaran, dan riwayat transaksi untuk outlet "${selectedOutlet.nama}" menjadi Rp 0?\n\nTindakan ini HANYA DAPAT DILAKUKAN OLEH ADMIN/OWNER dan TIDAK DAPAT DIBATALKAN.`;
+    const confirmText = `Apakah Anda yakin ingin mereset seluruh data tagihan, pembayaran, dan riwayat transaksi untuk outlet "${selectedOutlet.nama}" menjadi Rp 0?\n\nTindakan ini TIDAK DAPAT DIBATALKAN.`;
     if (!confirm(confirmText)) return;
 
     setIsResettingFinance(true);
@@ -658,7 +659,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   const handleToggleMode = async () => {
     if (!selectedOutlet || isTogglingMode) return;
-    if (!isOwnerOrAdmin) return;
+    if (!canManageOutlet) return;
     const targetMode = !selectedOutlet.has_daily_sales;
     const modeName = targetMode ? 'Modern Trade (Daily Sales)' : 'Reguler';
     if (!confirm(`Ubah mode outlet "${selectedOutlet.nama}" menjadi ${modeName}?`)) return;
@@ -679,7 +680,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   };
 
   const handleSaveTypePrice = async (ts: any) => {
-    if (!isOwnerOrAdmin || isSavingTypePrice) return;
+    if (!canManageOutlet || isSavingTypePrice) return;
     if (newTypePrice < 0) {
       alert('Harga tidak boleh negatif.');
       return;
@@ -970,8 +971,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   // Real-time stock adjustment with optimistic SWR sync
   const handleSaveStock = async (stock: any) => {
-    if (!isOwnerOrAdmin) {
-      alert('Akses ditolak: Hanya Owner atau Admin yang dapat mengubah stok outlet.');
+    if (!canManageOutlet) {
+      alert('Akses ditolak: Anda tidak memiliki izin untuk mengubah stok outlet.');
       return;
     }
     const delta = Number(stockDelta);
@@ -1026,8 +1027,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
 
   // Real-time price update with optimistic SWR sync & instant valuation update
   const handleSavePrice = async (stock: any) => {
-    if (!isOwnerOrAdmin) {
-      alert('Akses ditolak: Hanya Owner atau Admin yang dapat mengubah harga outlet.');
+    if (!canManageOutlet) {
+      alert('Akses ditolak: Anda tidak memiliki izin untuk mengubah harga outlet.');
       return;
     }
     const priceNum = Number(newPrice);
@@ -1129,7 +1130,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
   };
 
   const handleSaveBatch = async (cards: any[]) => {
-    if (!isOwnerOrAdmin || !selectedOutlet || isSavingBatch) return;
+    if (!canManageOutlet || !selectedOutlet || isSavingBatch) return;
     const checkedCards = cards.filter((c) => selectedProductIds[c.product_id]);
     if (checkedCards.length === 0) return;
 
@@ -1394,7 +1395,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                     Rp {Number(o.sisa_tagihan).toLocaleString('id-ID')}
                   </TableCell>
                   <TableCell className="text-right space-x-2">
-                    {isOwnerOrAdmin || (isDistributor && o.distributor_id === currentUser?.id) ? (
+                    {canManageOutlet || (isDistributor && o.distributor_id === currentUser?.id) ? (
                       <button 
                         onClick={(e) => { e.stopPropagation(); openModal(o); }} 
                         className="text-blue-600 hover:text-blue-800 font-medium text-xs px-2.5 py-1 rounded-md hover:bg-blue-50 transition-colors cursor-pointer"
@@ -1505,7 +1506,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                         }`}>
                           {selectedOutlet.has_daily_sales ? '🏬 Modern Trade (Daily Sales)' : '🏪 Reguler'}
                         </span>
-                        {isOwnerOrAdmin && (
+                        {canManageOutlet && (
                           <button
                             onClick={handleToggleMode}
                             disabled={isTogglingMode}
@@ -1534,7 +1535,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                         <span>Chat WA</span>
                       </a>
                     )}
-                    {isOwnerOrAdmin ? (
+                    {canManageOutlet ? (
                       <>
                         <button 
                           onClick={() => openModal(selectedOutlet)} 
@@ -1755,12 +1756,12 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                 {/* TAB 1: STOK & HARGA */}
                 {activeTab === 'STOK' && (
                   <div className="space-y-5">
-                    {/* View Only Banner for Marketing */}
-                    {!isOwnerOrAdmin && (
+                    {/* View Only Banner for Non-Managers */}
+                    {!canManageOutlet && (
                       <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 flex items-center gap-2.5 text-xs text-amber-900 leading-relaxed shadow-xs">
                         <Info size={16} className="text-amber-600 shrink-0" />
                         <div>
-                          <span className="font-bold">Akses View Only (Marketing):</span> Anda hanya dapat melihat data stok dan harga produk outlet. Penyesuaian stok fisik dan harga khusus outlet hanya dapat diubah oleh Admin atau Owner.
+                          <span className="font-bold">Akses View Only:</span> Anda hanya dapat melihat data stok dan harga produk outlet. Penyesuaian stok masuk dan harga khusus outlet hanya dapat diubah oleh Admin, Owner, atau Marketing pengelola.
                         </div>
                       </div>
                     )}
@@ -1777,7 +1778,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                             Patokan akumulasi valuasi Calio di outlet dan dasar pemotongan transaksi per gramasi/jenis.
                           </p>
                         </div>
-                        {isOwnerOrAdmin && (
+                        {canManageOutlet && (
                           <button
                             onClick={openOpnameModal}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer self-start sm:self-auto active:scale-95"
@@ -1838,7 +1839,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                     <span className="text-slate-500 font-medium">Harga Outlet:</span>
                                     <div className="flex items-center gap-1 font-bold text-slate-800">
                                       <span>Rp {ts.harga_beli.toLocaleString('id-ID')}</span>
-                                      {isOwnerOrAdmin && (
+                                      {canManageOutlet && (
                                         <button
                                           onClick={() => {
                                             setEditingTypeStockId(ts.id || ts.product_type_id);
@@ -1904,7 +1905,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                 Patokan stok outlet mengikuti <b>Stok per Jenis Produk</b> di atas. Input stok masuk tetap per varian agar tercatat otomatis ke <b>Log Pengiriman</b>.
                               </p>
                             </div>
-                            {isOwnerOrAdmin && outletProductCards.length > 0 && (
+                            {canManageOutlet && outletProductCards.length > 0 && (
                               <button
                                 type="button"
                                 onClick={() => toggleSelectAllProducts(outletProductCards)}
@@ -1922,7 +1923,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                           </div>
 
                           {/* Batch Edit Bar saat ada produk dicentang */}
-                          {isOwnerOrAdmin && checkedCards.length > 0 && (
+                          {canManageOutlet && checkedCards.length > 0 && (
                             <div className="bg-blue-50/90 border border-blue-200 rounded-xl p-3.5 space-y-2.5 shadow-xs">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
@@ -2030,7 +2031,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                     <div>
                                       <div className="flex justify-between items-start gap-2 mb-3">
                                         <div className="flex items-start gap-2 min-w-0">
-                                          {isOwnerOrAdmin && (
+                                          {canManageOutlet && (
                                             <input
                                               type="checkbox"
                                               checked={isChecked}
@@ -2051,7 +2052,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                         </div>
                                       </div>
 
-                                      {isOwnerOrAdmin && isChecked ? (
+                                      {canManageOutlet && isChecked ? (
                                         <div className="space-y-2.5 bg-blue-50/70 p-2.5 rounded-xl border border-blue-200">
                                           <div>
                                             <div className="flex items-center justify-between text-[11px] mb-1">
@@ -2128,8 +2129,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                         </div>
                                       ) : (
                                         <>
-                                          {/* Stock Edit Form (Owner / Admin Only) */}
-                                          {isOwnerOrAdmin && (
+                                          {/* Stock Edit Form */}
+                                          {canManageOutlet && (
                                             editingStockId === cardKey ? (
                                               <div className="space-y-2.5 bg-blue-50/60 p-3 rounded-xl border border-blue-200 mb-3">
                                                 <div className="flex items-center justify-between">
@@ -2255,8 +2256,8 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                             )
                                           )}
 
-                                          {/* Price Edit Form (Owner / Admin Only) */}
-                                          {isOwnerOrAdmin && editingPriceId === cardKey ? (
+                                          {/* Price Edit Form */}
+                                          {canManageOutlet && editingPriceId === cardKey ? (
                                             <div className="flex items-center gap-1.5 bg-slate-50 p-2 rounded-lg border border-slate-200">
                                               <input 
                                                 type="number" 
@@ -2282,7 +2283,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                               <div className="text-xs text-slate-500 font-medium">Harga Jual:</div>
                                               <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                                                 Rp {unitPrice.toLocaleString('id-ID')}
-                                                {isOwnerOrAdmin && (
+                                                {canManageOutlet && (
                                                   <button 
                                                     onClick={() => { setEditingPriceId(cardKey); setNewPrice(unitPrice); }} 
                                                     className="text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer"
@@ -2326,7 +2327,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                               <TableHead className="text-xs">Rincian Item</TableHead>
                               <TableHead className="text-xs">Catatan</TableHead>
                               <TableHead className="text-center text-xs">Status</TableHead>
-                              {isOwnerOrAdmin && <TableHead className="text-center text-xs">Aksi</TableHead>}
+                              {canManageOutlet && <TableHead className="text-center text-xs">Aksi</TableHead>}
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -2351,7 +2352,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                     {op.status}
                                   </span>
                                 </TableCell>
-                                {isOwnerOrAdmin && (
+                                {canManageOutlet && (
                                   <TableCell className="text-center text-xs whitespace-nowrap">
                                     {op.status === 'DRAFT' ? (
                                       <div className="flex items-center justify-center gap-1">
@@ -2385,7 +2386,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                             ))}
                             {(!selectedOutlet.stock_opnames || selectedOutlet.stock_opnames.length === 0) && (
                               <TableRow>
-                                <TableCell colSpan={isOwnerOrAdmin ? 5 : 4} className="text-center text-xs text-slate-400 py-5">Belum ada histori stok opname.</TableCell>
+                                <TableCell colSpan={canManageOutlet ? 5 : 4} className="text-center text-xs text-slate-400 py-5">Belum ada histori stok opname.</TableCell>
                               </TableRow>
                             )}
                           </TableBody>
@@ -2462,7 +2463,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                     {/* Action Bar */}
                     <div className="flex flex-wrap gap-2 justify-between items-center bg-slate-50/80 p-3 rounded-xl border border-slate-200">
                       <div>
-                        {isOwnerOrAdmin && (
+                        {canManageOutlet && (
                           <button 
                             type="button"
                             onClick={handleResetFinance}
@@ -2485,7 +2486,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                         )}
                       </div>
 
-                      {isOwnerOrAdmin ? (
+                      {canManageOutlet ? (
                         <div className="flex flex-wrap gap-2">
                           <button 
                             onClick={openPaymentModal} 
@@ -2633,7 +2634,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                 </TableCell>
                                 <TableCell className="text-center text-xs whitespace-nowrap">
                                   <div className="flex items-center justify-center gap-1">
-                                    {isPending && isOwnerOrAdmin && (
+                                    {isPending && canManageOutlet && (
                                       <button
                                         onClick={() => openPendingModal(tx)}
                                         className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-bold cursor-pointer transition-colors"
@@ -2641,7 +2642,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                                         Lengkapi
                                       </button>
                                     )}
-                                    {isOwnerOrAdmin && (
+                                    {canManageOutlet && (
                                       <>
                                         <button
                                           type="button"
@@ -2913,24 +2914,32 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                       ))}
                     </select>
                   </div>
-
-                  <div className="bg-purple-50/70 border border-purple-200 rounded-lg p-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(formData.has_daily_sales)}
-                        onChange={e => setFormData({ ...formData, has_daily_sales: e.target.checked })}
-                        className="w-4 h-4 text-purple-600 rounded"
-                      />
-                      <span className="text-xs font-bold text-purple-900">
-                        🏬 Mode Modern Trade (Daily Sales)
-                      </span>
-                    </label>
-                    <p className="text-[11px] text-purple-700 ml-6 mt-0.5">
-                      Aktifkan jika outlet melaporkan penjualan harian (POS) sebelum pembayaran tukar faktur.
-                    </p>
-                  </div>
                 </>
+              )}
+
+              {canManageOutlet && (
+                <div className="bg-purple-50/70 border border-purple-200 rounded-lg p-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formData.has_daily_sales)}
+                      onChange={e => setFormData({ ...formData, has_daily_sales: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 rounded"
+                    />
+                    <span className="text-xs font-bold text-purple-900">
+                      🏬 Mode Modern Trade (Daily Sales)
+                    </span>
+                  </label>
+                  <p className="text-[11px] text-purple-700 ml-6 mt-0.5">
+                    Aktifkan jika outlet melaporkan penjualan harian (POS) sebelum pembayaran tukar faktur.
+                  </p>
+                </div>
+              )}
+
+              {isMarketing && !isEditing && (
+                <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-xs text-blue-900">
+                  <span className="font-bold">Outlet Binaan Marketing:</span> Outlet ini otomatis ditugaskan ke akun Anda (<b>{currentUser?.nama}</b>).
+                </div>
               )}
 
               {isDistributor && (
@@ -2954,7 +2963,7 @@ export function OutletManager({ outlets, currentUser, employees }: { outlets: an
                 <textarea className="w-full border rounded p-2 text-sm" value={formData.alamat || ''} onChange={e => setFormData({...formData, alamat: e.target.value})} placeholder="Alamat lengkap outlet..." rows={3} />
               </div>
 
-              {!isEditing && isOwnerOrAdmin && (
+              {!isEditing && canManageOutlet && (
                 <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-3.5 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-blue-900">📦 Input Stok Awal Outlet Langsung (Opsional)</span>

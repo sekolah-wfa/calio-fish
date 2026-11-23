@@ -57,7 +57,7 @@ export default function PengeluaranPage() {
             }
           }}
           onMutate={() => void mutate()}
-          exportButton={<PdfExportButton targetId="pengeluaran-report" filename="laporan-pengeluaran" />}
+          exportButton={<PdfExportButton targetId="pengeluaran-report" filename="laporan-pengeluaran" showCsv={false} />}
         />
       </div>
     </div>

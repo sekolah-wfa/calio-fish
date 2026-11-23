@@ -60,7 +60,7 @@ export function Sidebar({ user }: { user: { id: string; role: string; nama: stri
         { name: "Database Outlet", href: "/outlet", icon: MapPin, visible: isOwnerOrAdmin || isMitra || isMarketing || isDistributor },
         { name: "Database Produk", href: "/produk", icon: PackageCheck, visible: isOwnerOrAdmin },
         { name: "Warehouse", href: "/warehouse", icon: WarehouseIcon, visible: isOwnerOrAdmin || isProduksi || isMarketing || isDistributor },
-        { name: "Log Pengiriman", href: "/pengiriman", icon: Package, visible: isOwnerOrAdmin || isMitra || isDistributor },
+        { name: "Log Pengiriman", href: "/pengiriman", icon: Package, visible: isOwnerOrAdmin || isMarketing || isMitra || isDistributor },
         { name: "Affiliator", href: "/affiliator", icon: Network, visible: isOwnerOrAdmin },
       ]
     },

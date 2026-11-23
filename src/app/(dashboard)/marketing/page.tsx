@@ -542,6 +542,25 @@ function MarketingDetailModal({ employee, onClose, onSaved }: { employee: any; o
         {/* Tab 1: Outlets */}
         {detailTab === 'outlets' && (
           <div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <a
+                href="/outlet"
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  background: '#2563eb',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                🏪 Kelola Outlet (Tambah, Stok, Harga, Pembayaran, Piutang) →
+              </a>
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
